@@ -44,6 +44,8 @@
             border-radius: 0.75rem; /* rounded-xl equivalent */
             margin-top: 1rem;
             margin-bottom: 1rem;
+            /* Ensure smooth transition for visual changes */
+            transition: all 0.3s ease-in-out; 
         }
         
         .status-indicator {
@@ -64,6 +66,27 @@
         .active-pulse {
             animation: pulse-green 1.5s infinite;
         }
+
+        /* --- FULLSCREEN MAP STYLES (CRITICAL) --- */
+        /* Forces the map element to take up the full viewport when in fullscreen mode */
+        #map:fullscreen {
+            width: 100vw !important;
+            height: 100vh !important;
+            position: fixed;
+            top: 0;
+            left: 0;
+            margin: 0 !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            z-index: 9999;
+            box-shadow: none !important;
+        }
+        
+        /* Webkit/Mozilla prefixes for compatibility */
+        #map:-webkit-full-screen { width: 100vw !important; height: 100vh !important; }
+        #map:-moz-full-screen { width: 100vw !important; height: 100vh !important; }
+        #map:-ms-fullscreen { width: 100vw !important; height: 100vh !important; }
+        /* --- END FULLSCREEN MAP STYLES --- */
     </style>
 </head>
 <body>
@@ -100,6 +123,15 @@
                 Start Tracking Location
             </button>
             
+            <!-- NEW: Fullscreen Button -->
+            <div class="flex justify-end pt-4">
+                <button id="fullscreen-btn" 
+                    class="flex items-center space-x-1 px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg shadow-md hover:bg-gray-300 transition duration-150 active:scale-[0.98]">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                    <span id="fullscreen-text">View Fullscreen</span>
+                </button>
+            </div>
+
             <!-- Map Container -->
             <div id="map" class="shadow-md"></div>
             
@@ -157,6 +189,11 @@
                     </div>
                 </div>
 
+                <!-- NEW: Clear History Button -->
+                <button id="clear-history-btn" class="w-full bg-red-500 text-white py-2 mt-4 rounded-xl font-bold hover:bg-red-600 transition duration-200 shadow-lg active:scale-[0.99] disabled:opacity-50 text-sm">
+                    Clear All Local Location History (50 points)
+                </button>
+
             </div>
         </div>
     </div>
@@ -169,7 +206,7 @@
             isTracking: false,
             userId: null,
             message: '',
-            // Changed from lastLocation to locationHistory (array of {lat, lng, timestamp})
+            // locationHistory is an array of {lat, lng, timestamp}
             locationHistory: [], 
         };
         let watchId = null;
@@ -178,6 +215,9 @@
         let pathLine = null; // Global variable for the polyline
         let geocoder = null; // New global variable for the Geocoder service
 
+        // Default center if no location is stored (e.g., Los Angeles)
+        const DEFAULT_CENTER = { lat: 34.0522, lng: -118.2437 };
+
         // --- DOM Elements ---
         const nicknameCard = document.getElementById('nickname-card');
         const dashboardCard = document.getElementById('dashboard-card');
@@ -185,22 +225,24 @@
         const setNicknameBtn = document.getElementById('set-nickname-btn');
         const changeNicknameBtn = document.getElementById('change-nickname-btn');
         const nicknameError = document.getElementById('nickname-error');
-
         const toggleBtn = document.getElementById('toggle-tracking-btn');
         const statusInput = document.getElementById('status-input');
         const statusUpdateMessage = document.getElementById('status-update-message');
-
         const userIdDisplay = document.getElementById('user-display-name');
         const liveIndicator = document.getElementById('live-indicator');
         const displayLat = document.getElementById('display-lat');
         const displayLng = document.getElementById('display-lng');
         const displayTime = document.getElementById('display-time');
         const displayMessage = document.getElementById('display-message');
-        
-        // NEW: Address display elements
         const displayStreet = document.getElementById('display-street');
         const displayCity = document.getElementById('display-city');
         const displayCountry = document.getElementById('display-country');
+        const clearHistoryBtn = document.getElementById('clear-history-btn');
+        // NEW: Fullscreen elements
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        const fullscreenText = document.getElementById('fullscreen-text');
+        const mapContainer = document.getElementById('map');
+
 
         // --- Local Storage Management ---
 
@@ -234,22 +276,24 @@
         window.initMap = () => {
             console.log("Google Maps API loaded. Initializing map and geocoder.");
             
-            // Default center if no location is stored (e.g., Los Angeles)
-            const defaultLat = 34.0522;
-            const defaultLng = -118.2437;
             const lastLocation = state.locationHistory.length > 0 ? state.locationHistory[state.locationHistory.length - 1] : null;
 
             let initialCenter = { 
-                lat: lastLocation ? lastLocation.lat : defaultLat, 
-                lng: lastLocation ? lastLocation.lng : defaultLng 
+                lat: lastLocation ? lastLocation.lat : DEFAULT_CENTER.lat, 
+                lng: lastLocation ? lastLocation.lng : DEFAULT_CENTER.lng 
             };
 
-            map = new google.maps.Map(document.getElementById("map"), {
+            map = new google.maps.Map(mapContainer, {
                 zoom: lastLocation ? 14 : 2, // Zoom closer if location exists
                 center: initialCenter,
                 mapTypeControl: false,
                 streetViewControl: false,
-                fullscreenControl: false,
+                fullscreenControl: false, // Explicitly disable Google Maps default control
+                // Using a slightly toned-down map style
+                styles: [
+                    { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+                    { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
+                ]
             });
 
             // Initialize the Geocoder service
@@ -283,6 +327,8 @@
             // Draw any existing path after map is initialized
             if (state.locationHistory.length > 0) {
                 updateMapPath(false); // Do not force center/zoom immediately
+                // Geocode the last position
+                geocodeCoordinates(lastLocation.lat, lastLocation.lng);
             }
             
             // If the map loaded before the nickname was set, ensure the dashboard remains hidden
@@ -292,7 +338,7 @@
         };
 
 
-        // --- UI Update Functions ---
+        // --- UI Update Functions and Helpers ---
 
         // Helper function to update the map path, marker position, and optional centering
         const updateMapPath = (shouldCenter = false) => {
@@ -315,13 +361,19 @@
                 if (shouldCenter) {
                     map.panTo(googlePos);
                 }
+            } else {
+                // If history is cleared, ensure the marker is reset to the default location
+                marker.setPosition(DEFAULT_CENTER);
             }
         };
         
-        // NEW: Function to perform Reverse Geocoding
+        // Function to perform Reverse Geocoding
         const geocodeCoordinates = (lat, lng) => {
             if (!geocoder) {
-                console.error("Geocoder not initialized.");
+                // If no internet, geocoder won't be initialized, just show coordinates
+                displayStreet.textContent = 'Map unavailable (Offline)';
+                displayCity.textContent = 'N/A';
+                displayCountry.textContent = 'N/A';
                 return;
             }
 
@@ -333,57 +385,49 @@
             displayCountry.textContent = 'Looking up...';
 
             geocoder.geocode({ location: latlng }, (results, status) => {
-                if (status === "OK") {
-                    if (results[0]) {
-                        const addressComponents = results[0].address_components;
-                        let street = '';
-                        let city = 'N/A';
-                        let country = 'N/A';
-                        let route = '';
-                        let streetNumber = '';
+                if (status === "OK" && results[0]) {
+                    const addressComponents = results[0].address_components;
+                    let street = '';
+                    let city = 'N/A';
+                    let country = 'N/A';
+                    let route = '';
+                    let streetNumber = '';
 
-                        // Helper to find component by type
-                        const findComponent = (type) => addressComponents.find(c => c.types.includes(type));
+                    const findComponent = (type) => addressComponents.find(c => c.types.includes(type));
 
-                        // Parse Address Components
-                        // Locality is City, administrative_area_level_2/1 is Region/State
-                        const cityComponent = findComponent('locality') || findComponent('administrative_area_level_2') || findComponent('administrative_area_level_1');
-                        if (cityComponent) {
-                            city = cityComponent.long_name;
-                        }
-                        const countryComponent = findComponent('country');
-                        if (countryComponent) {
-                            country = countryComponent.long_name;
-                        }
-                        const routeComponent = findComponent('route');
-                        if (routeComponent) {
-                            route = routeComponent.long_name;
-                        }
-                        const streetNumberComponent = findComponent('street_number');
-                        if (streetNumberComponent) {
-                            streetNumber = streetNumberComponent.long_name;
-                        }
-
-                        // Combine street number and route for the full street address
-                        street = (streetNumber ? streetNumber + ' ' : '') + route;
-                        if (!street.trim() && results[0].formatted_address) {
-                            // Fallback to the first part of the formatted address if specific street components are missing
-                            const parts = results[0].formatted_address.split(',');
-                            street = parts[0].trim();
-                        }
-                        
-                        displayStreet.textContent = street || 'Address component not found';
-                        displayCity.textContent = city || 'City/Region not found';
-                        displayCountry.textContent = country || 'Country not found';
-                        
-                    } else {
-                        displayStreet.textContent = 'No address results found.';
-                        displayCity.textContent = 'N/A';
-                        displayCountry.textContent = 'N/A';
+                    // Parse Address Components
+                    const cityComponent = findComponent('locality') || findComponent('administrative_area_level_2') || findComponent('administrative_area_level_1');
+                    if (cityComponent) {
+                        city = cityComponent.long_name;
                     }
+                    const countryComponent = findComponent('country');
+                    if (countryComponent) {
+                        country = countryComponent.long_name;
+                    }
+                    const routeComponent = findComponent('route');
+                    if (routeComponent) {
+                        route = routeComponent.long_name;
+                    }
+                    const streetNumberComponent = findComponent('street_number');
+                    if (streetNumberComponent) {
+                        streetNumber = streetNumberComponent.long_name;
+                    }
+
+                    // Combine street number and route for the full street address
+                    street = (streetNumber ? streetNumber + ' ' : '') + route;
+                    if (!street.trim() && results[0].formatted_address) {
+                        // Fallback to the first part of the formatted address
+                        const parts = results[0].formatted_address.split(',');
+                        street = parts[0].trim();
+                    }
+                    
+                    displayStreet.textContent = street || 'Address component not found';
+                    displayCity.textContent = city || 'City/Region not found';
+                    displayCountry.textContent = country || 'Country not found';
+                        
                 } else {
                     console.error("Geocoder failed due to: " + status);
-                    displayStreet.textContent = `Geocoding failed (${status})`;
+                    displayStreet.textContent = `Geocoding failed (${status} - Check Internet)`;
                     displayCity.textContent = 'N/A';
                     displayCountry.textContent = 'N/A';
                 }
@@ -427,7 +471,8 @@
                     liveIndicator.classList.add('bg-green-500', 'active-pulse');
                     liveIndicator.classList.remove('bg-yellow-500');
                     // Reverse geocode on UI update if we have a location
-                    geocodeCoordinates(lastLocation.lat, lastLocation.lng);
+                    // geocodeCoordinates is called in geoSuccess, but call it here on load/resume too
+                    // geocodeCoordinates(lastLocation.lat, lastLocation.lng); 
                 } else {
                     // Waiting for first location
                     liveIndicator.classList.add('bg-yellow-500');
@@ -455,13 +500,14 @@
                 // Show last known location if available
                 if (lastLocation) {
                     displayTime.textContent = new Date(lastLocation.timestamp).toLocaleTimeString();
-                    // Reverse geocode one last time on stop
+                    // Reverse geocode one last time on stop or load
                     geocodeCoordinates(lastLocation.lat, lastLocation.lng);
                 } else {
-                     displayTime.textContent = 'Tracking stopped. No data.';
-                     displayStreet.textContent = 'Tracking stopped. No data.';
-                     displayCity.textContent = 'Tracking stopped. No data.';
-                     displayCountry.textContent = 'Tracking stopped. No data.';
+                    // If no history exists
+                    displayTime.textContent = 'Tracking stopped. No data.';
+                    displayStreet.textContent = 'Tracking stopped. No data.';
+                    displayCity.textContent = 'Tracking stopped. No data.';
+                    displayCountry.textContent = 'Tracking stopped. No data.';
                 }
             }
 
@@ -472,7 +518,7 @@
             } else {
                 displayLat.textContent = '--';
                 displayLng.textContent = '--';
-                displayTime.textContent = 'Not yet acquired.';
+                if (!state.isTracking) displayTime.textContent = 'Not yet acquired.';
             }
         };
 
@@ -519,7 +565,7 @@
                 }
             }
             
-            // 3. Reverse Geocode for Address
+            // 3. Reverse Geocode for Address (If map API loaded)
             geocodeCoordinates(lat, lng);
 
             // Transition from "Waiting" (Yellow) to "Active" (Green) status
@@ -606,23 +652,68 @@
         };
 
         const handleNicknameChange = () => {
+            // Stop tracking if user changes identity
+            if (state.isTracking) stopTracking(); 
+            
+            // Reset state
             state.userId = null;
-            state.isTracking = false; // Stop tracking if user changes identity
             state.locationHistory = []; // Clear history on identity change
-            if (watchId !== null) {
-                navigator.geolocation.clearWatch(watchId);
-                watchId = null;
-            }
             saveState();
-            updateDashboardUI();
+            
             // Clear path from map immediately
             if (pathLine) {
                 pathLine.setPath([]);
             }
+            // Reset map marker and zoom
+            if (marker && map) {
+                marker.setPosition(DEFAULT_CENTER);
+                map.setZoom(2);
+            }
+            
+            // Update UI
+            updateDashboardUI();
+            
             // Clear address displays
             displayStreet.textContent = 'Awaiting location...';
             displayCity.textContent = 'Awaiting location...';
             displayCountry.textContent = 'Awaiting location...';
+        };
+        
+        // Handler for clearing all local data
+        const handleClearHistory = () => {
+            // NOTE: Using window.confirm() for simplicity, use custom modal UI in a real app
+            if (!window.confirm('Are you sure you want to clear all 50 points of locally stored location history? This action cannot be undone.')) {
+                 return;
+            }
+            
+            // 1. Stop tracking if active
+            if (state.isTracking) {
+                stopTracking();
+            }
+
+            // 2. Reset history in state
+            state.locationHistory = [];
+            saveState();
+
+            // 3. Clear map path and reset marker
+            if (pathLine) {
+                pathLine.setPath([]);
+            }
+            if (marker && map) {
+                marker.setPosition(DEFAULT_CENTER);
+                map.setZoom(2); // Zoom out to country/world view
+            }
+            
+            // 4. Update UI displays to clear data
+            updateDashboardUI(); 
+            displayLat.textContent = '--';
+            displayLng.textContent = '--';
+            displayTime.textContent = 'History Cleared';
+            displayStreet.textContent = 'History Cleared. Start new tracking.';
+            displayCity.textContent = 'N/A';
+            displayCountry.textContent = 'N/A';
+
+            showModal("Location history cleared successfully!", false);
         };
         
         const handleStatusUpdate = () => {
@@ -635,7 +726,60 @@
             statusUpdateMessage.classList.add('text-green-500');
             setTimeout(() => { statusUpdateMessage.textContent = ''; }, 2000);
         };
+        
+        // --- NEW: Fullscreen Toggle Function ---
+        const toggleFullscreen = () => {
+            // Check if the document is currently in fullscreen mode
+            const isFullscreen = document.fullscreenElement === mapContainer;
 
+            if (isFullscreen) {
+                document.exitFullscreen()
+                    .then(() => {
+                        console.log("Exited fullscreen mode.");
+                        // Google Maps needs to be told to resize after the container size changes
+                        if (map) {
+                            google.maps.event.trigger(map, 'resize');
+                            // Re-center map to the last known position after exiting fullscreen
+                            if (marker) {
+                                map.setCenter(marker.getPosition());
+                            }
+                        }
+                    })
+                    .catch(err => {
+                        console.error(`Error attempting to exit full-screen mode: ${err.message}`);
+                    });
+            } else {
+                // If not in fullscreen, request it for the map container
+                mapContainer.requestFullscreen()
+                    .then(() => {
+                        console.log("Entered fullscreen mode.");
+                        // Google Maps needs to be told to resize after the container size changes
+                        if (map) {
+                            google.maps.event.trigger(map, 'resize');
+                            // Re-center map to the last known position after entering fullscreen
+                            if (marker) {
+                                map.setCenter(marker.getPosition());
+                            }
+                        }
+                    })
+                    .catch(err => {
+                        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+                        showModal("Error: Fullscreen denied by browser (usually due to security settings or iframe restrictions).", true);
+                    });
+            }
+        };
+
+        // Function to update the fullscreen button UI
+        const updateFullscreenButton = () => {
+            const isFullscreen = document.fullscreenElement === mapContainer;
+            if (isFullscreen) {
+                fullscreenText.textContent = 'Exit Fullscreen';
+                fullscreenBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg><span id="fullscreen-text">Exit Fullscreen</span>';
+            } else {
+                fullscreenText.textContent = 'View Fullscreen';
+                fullscreenBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span id="fullscreen-text">View Fullscreen</span>';
+            }
+        };
 
         // --- Event Listeners and Initialization ---
         
@@ -650,6 +794,12 @@
         setNicknameBtn.addEventListener('click', handleNicknameSave);
         changeNicknameBtn.addEventListener('click', handleNicknameChange);
         statusInput.addEventListener('input', handleStatusUpdate);
+        clearHistoryBtn.addEventListener('click', handleClearHistory);
+        // NEW: Fullscreen listener
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+        // Listener for when the fullscreen state changes (e.g., user presses ESC)
+        document.addEventListener('fullscreenchange', updateFullscreenButton);
+
 
         window.onload = () => {
             loadState();

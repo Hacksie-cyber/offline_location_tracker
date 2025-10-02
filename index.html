@@ -123,7 +123,7 @@
                 Start Tracking Location
             </button>
             
-            <!-- NEW: Fullscreen Button -->
+            <!-- Fullscreen Button -->
             <div class="flex justify-end pt-4">
                 <button id="fullscreen-btn" 
                     class="flex items-center space-x-1 px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg shadow-md hover:bg-gray-300 transition duration-150 active:scale-[0.98]">
@@ -191,7 +191,7 @@
 
                 <!-- NEW: Clear History Button -->
                 <button id="clear-history-btn" class="w-full bg-red-500 text-white py-2 mt-4 rounded-xl font-bold hover:bg-red-600 transition duration-200 shadow-lg active:scale-[0.99] disabled:opacity-50 text-sm">
-                    Clear All Local Location History (50 points)
+                    Clear All Local Location History
                 </button>
 
             </div>
@@ -305,21 +305,25 @@
                 title: state.userId || "Location"
             });
             
-            // Initialize Polyline Path (Dotted Line)
+            // Initialize Polyline Path (Pure Dotted Line - Circles Only)
             pathLine = new google.maps.Polyline({
                 path: [], // Will be filled by updateMapPath
                 geodesic: true,
-                strokeColor: '#10B981', // Emerald green
-                strokeOpacity: 0.8,
-                strokeWeight: 3,
+                strokeColor: '#10B981', 
+                // CRITICAL FIX: Setting strokeOpacity to 0 hides the connecting line segment
+                strokeOpacity: 0, 
+                strokeWeight: 0, // Also set weight to 0 just in case
+                // This configuration creates a series of solid dots (small circles)
                 icons: [{
                     icon: { 
-                        path: 'M 0,-1 0,1', // Simple dash line definition
-                        strokeOpacity: 1,
-                        scale: 4,
+                        path: google.maps.SymbolPath.CIRCLE, // Use a small circle symbol for a true dot effect
+                        fillColor: '#10B981', // Match the path color
+                        fillOpacity: 1,
+                        strokeWeight: 0, // No stroke on the dot itself, making it solid
+                        scale: 3, // Control the size of the dot
                     },
                     offset: '0',
-                    repeat: '20px' // Makes the line dotted/dashed
+                    repeat: '12px' // Control the spacing between dots
                 }],
                 map: map
             });
@@ -470,9 +474,6 @@
                 if (lastLocation) {
                     liveIndicator.classList.add('bg-green-500', 'active-pulse');
                     liveIndicator.classList.remove('bg-yellow-500');
-                    // Reverse geocode on UI update if we have a location
-                    // geocodeCoordinates is called in geoSuccess, but call it here on load/resume too
-                    // geocodeCoordinates(lastLocation.lat, lastLocation.lng); 
                 } else {
                     // Waiting for first location
                     liveIndicator.classList.add('bg-yellow-500');
@@ -542,11 +543,6 @@
 
             // 1. Update location history
             state.locationHistory.push(newPoint);
-            // Cap history to prevent memory overflow (e.g., last 50 points)
-            if (state.locationHistory.length > 50) {
-                state.locationHistory.shift(); 
-            }
-
             saveState();
 
             // Update the display immediately
@@ -682,7 +678,7 @@
         // Handler for clearing all local data
         const handleClearHistory = () => {
             // NOTE: Using window.confirm() for simplicity, use custom modal UI in a real app
-            if (!window.confirm('Are you sure you want to clear all 50 points of locally stored location history? This action cannot be undone.')) {
+            if (!window.confirm('Are you sure you want to clear all locally stored location history? This action cannot be undone.')) {
                  return;
             }
             
@@ -727,7 +723,7 @@
             setTimeout(() => { statusUpdateMessage.textContent = ''; }, 2000);
         };
         
-        // --- NEW: Fullscreen Toggle Function ---
+        // --- Fullscreen Toggle Function ---
         const toggleFullscreen = () => {
             // Check if the document is currently in fullscreen mode
             const isFullscreen = document.fullscreenElement === mapContainer;

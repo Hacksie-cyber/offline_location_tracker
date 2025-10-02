@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Offline Location Tracker</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Maps API Script - Uses the provided API key and defines initMap as callback -->
+    <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDCBD8y02er5VSinumFXBmAFEtsg2oYz9I&callback=initMap"></script>
+    
+    <style>
+        /* Custom font import for aesthetics */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Light blue-gray background */
+            min-height: 100vh;
+            display: flex; 
+            align-items: flex-start; 
+            justify-content: center; 
+            padding: 2rem 1rem; 
+            margin: 0;
+        }
+
+        .card {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px -5px rgba(10, 20, 40, 0.1);
+            width: 100%;
+            max-width: 500px;
+            border: 1px solid #e2e8f0;
+            /* Ensure smooth transition for border/shadow changes */
+            transition: all 0.3s ease-in-out; 
+        }
+
+        /* Map Container Styling */
+        #map {
+            height: 300px; /* Fixed height for good visibility */
+            width: 100%;
+            border-radius: 0.75rem; /* rounded-xl equivalent */
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        
+        .active-pulse {
+            animation: pulse-green 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main Application Container -->
+    <div id="app-container" class="w-full max-w-lg space-y-6">
+
+        <!-- Header -->
+        <header class="text-center p-4">
+            <h1 class="text-4xl font-extrabold text-gray-800">
+                Offline Location Dashboard
+            </h1>
+            <p class="mt-2 text-gray-500">
+                Your location and status are saved locally in this browser. (Map requires internet)
+            </p>
+        </header>
+
+        <!-- NICKNAME SETUP CARD -->
+        <div id="nickname-card" class="card space-y-4">
+            <h2 class="text-xl font-bold text-indigo-600">Step 1: Set Nickname</h2>
+            <input type="text" id="nickname-input" placeholder="Enter your display name (e.g., Traveler)" maxlength="30" 
+                   class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-lg">
+            <button id="set-nickname-btn" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition duration-200 shadow-lg active:scale-[0.99] disabled:opacity-50">
+                Save Nickname & Start
+            </button>
+            <p class="text-sm text-red-500 hidden" id="nickname-error">Nickname is required.</p>
+        </div>
+
+        <!-- TRACKING DASHBOARD CARD (Hidden until nickname set) -->
+        <div id="dashboard-card" class="card space-y-6 hidden">
+            
+            <!-- Tracking Toggle -->
+            <button id="toggle-tracking-btn" class="w-full text-white py-3 rounded-xl font-bold transition duration-200 shadow-lg hover:shadow-xl active:scale-[0.99]">
+                Start Tracking Location
+            </button>
+            
+            <!-- Map Container -->
+            <div id="map" class="shadow-md"></div>
+            
+            <!-- User Status Message -->
+            <div>
+                <label for="status-input" class="block text-sm font-medium text-gray-700 mb-2">Your Status Message (Saved Locally)</label>
+                <input type="text" id="status-input" placeholder="e.g., Taking a break, at the park..." maxlength="100" 
+                       class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-green-500 focus:border-green-500">
+                <p id="status-update-message" class="text-xs mt-1 text-gray-500"></p>
+            </div>
+
+            <div class="border-t border-gray-100 pt-4 space-y-4">
+                
+                <!-- User ID and Status Indicator -->
+                <div class="flex items-center justify-between">
+                    <p class="text-sm font-semibold text-gray-800 flex items-center">
+                        <span class="status-indicator bg-gray-300" id="live-indicator"></span>
+                        <span id="user-display-name" class="text-lg text-gray-800 font-extrabold"></span>
+                    </p>
+                    <button id="change-nickname-btn" class="text-sm text-indigo-500 hover:underline">Change Nickname</button>
+                </div>
+
+                <!-- Location Details Display -->
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="text-xs font-medium text-gray-500">Latitude</div>
+                        <div id="display-lat" class="text-lg font-bold text-gray-700">--</div>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="text-xs font-medium text-gray-500">Longitude</div>
+                        <div id="display-lng" class="text-lg font-bold text-gray-700">--</div>
+                    </div>
+                    
+                    <!-- NEW: Real-time Address Display -->
+                    <div class="p-3 bg-gray-50 rounded-lg col-span-2">
+                        <div class="text-xs font-medium text-gray-500">Street Address</div>
+                        <div id="display-street" class="text-base font-semibold text-gray-700">Awaiting location...</div>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="text-xs font-medium text-gray-500">City/Region</div>
+                        <div id="display-city" class="text-base font-semibold text-gray-700">Awaiting location...</div>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="text-xs font-medium text-gray-500">Country</div>
+                        <div id="display-country" class="text-base font-semibold text-gray-700">Awaiting location...</div>
+                    </div>
+                    
+                    <div class="p-3 bg-gray-50 rounded-lg col-span-2">
+                        <div class="text-xs font-medium text-gray-500">Last Update Time</div>
+                        <div id="display-time" class="text-base font-semibold text-gray-700">Awaiting location...</div>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded-lg col-span-2">
+                        <div class="text-xs font-medium text-gray-500">Current Status</div>
+                        <div id="display-message" class="text-base font-semibold text-gray-700 italic">No status set</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- Configuration and Global State ---
+        const LOCAL_STORAGE_KEY = 'offline_tracker_state_v1';
+        let state = {
+            isTracking: false,
+            userId: null,
+            message: '',
+            // Changed from lastLocation to locationHistory (array of {lat, lng, timestamp})
+            locationHistory: [], 
+        };
+        let watchId = null;
+        let map = null; // Global map variable for Google Maps object
+        let marker = null; // Global marker variable
+        let pathLine = null; // Global variable for the polyline
+        let geocoder = null; // New global variable for the Geocoder service
+
+        // --- DOM Elements ---
+        const nicknameCard = document.getElementById('nickname-card');
+        const dashboardCard = document.getElementById('dashboard-card');
+        const nicknameInput = document.getElementById('nickname-input');
+        const setNicknameBtn = document.getElementById('set-nickname-btn');
+        const changeNicknameBtn = document.getElementById('change-nickname-btn');
+        const nicknameError = document.getElementById('nickname-error');
+
+        const toggleBtn = document.getElementById('toggle-tracking-btn');
+        const statusInput = document.getElementById('status-input');
+        const statusUpdateMessage = document.getElementById('status-update-message');
+
+        const userIdDisplay = document.getElementById('user-display-name');
+        const liveIndicator = document.getElementById('live-indicator');
+        const displayLat = document.getElementById('display-lat');
+        const displayLng = document.getElementById('display-lng');
+        const displayTime = document.getElementById('display-time');
+        const displayMessage = document.getElementById('display-message');
+        
+        // NEW: Address display elements
+        const displayStreet = document.getElementById('display-street');
+        const displayCity = document.getElementById('display-city');
+        const displayCountry = document.getElementById('display-country');
+
+        // --- Local Storage Management ---
+
+        const loadState = () => {
+            const storedState = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (storedState) {
+                try {
+                    const loaded = JSON.parse(storedState);
+                    // Handle transition from old 'lastLocation' to new 'locationHistory' if necessary
+                    if (loaded.lastLocation && !loaded.locationHistory) {
+                        loaded.locationHistory = [loaded.lastLocation];
+                        delete loaded.lastLocation;
+                    }
+                    state = loaded;
+                } catch (e) {
+                    console.error("Error parsing stored state, resetting.", e);
+                    localStorage.removeItem(LOCAL_STORAGE_KEY);
+                }
+            }
+            // Ensure isTracking is boolean and locationHistory is an array
+            if (typeof state.isTracking !== 'boolean') state.isTracking = false;
+            if (!Array.isArray(state.locationHistory)) state.locationHistory = []; 
+        };
+
+        const saveState = () => {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+        };
+
+        // --- Map Initialization ---
+        // Must be global for Google Maps API callback to execute
+        window.initMap = () => {
+            console.log("Google Maps API loaded. Initializing map and geocoder.");
+            
+            // Default center if no location is stored (e.g., Los Angeles)
+            const defaultLat = 34.0522;
+            const defaultLng = -118.2437;
+            const lastLocation = state.locationHistory.length > 0 ? state.locationHistory[state.locationHistory.length - 1] : null;
+
+            let initialCenter = { 
+                lat: lastLocation ? lastLocation.lat : defaultLat, 
+                lng: lastLocation ? lastLocation.lng : defaultLng 
+            };
+
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: lastLocation ? 14 : 2, // Zoom closer if location exists
+                center: initialCenter,
+                mapTypeControl: false,
+                streetViewControl: false,
+                fullscreenControl: false,
+            });
+
+            // Initialize the Geocoder service
+            geocoder = new google.maps.Geocoder();
+
+            marker = new google.maps.Marker({
+                map: map,
+                position: initialCenter,
+                title: state.userId || "Location"
+            });
+            
+            // Initialize Polyline Path (Dotted Line)
+            pathLine = new google.maps.Polyline({
+                path: [], // Will be filled by updateMapPath
+                geodesic: true,
+                strokeColor: '#10B981', // Emerald green
+                strokeOpacity: 0.8,
+                strokeWeight: 3,
+                icons: [{
+                    icon: { 
+                        path: 'M 0,-1 0,1', // Simple dash line definition
+                        strokeOpacity: 1,
+                        scale: 4,
+                    },
+                    offset: '0',
+                    repeat: '20px' // Makes the line dotted/dashed
+                }],
+                map: map
+            });
+            
+            // Draw any existing path after map is initialized
+            if (state.locationHistory.length > 0) {
+                updateMapPath(false); // Do not force center/zoom immediately
+            }
+            
+            // If the map loaded before the nickname was set, ensure the dashboard remains hidden
+            if (!state.userId) {
+                dashboardCard.classList.add('hidden');
+            }
+        };
+
+
+        // --- UI Update Functions ---
+
+        // Helper function to update the map path, marker position, and optional centering
+        const updateMapPath = (shouldCenter = false) => {
+            if (!map || !pathLine || !marker) return;
+
+            // 1. Convert state history to LatLng array
+            const pathCoords = state.locationHistory.map(loc => ({
+                lat: loc.lat,
+                lng: loc.lng
+            }));
+
+            // 2. Update the Polyline path
+            pathLine.setPath(pathCoords);
+
+            // 3. Update marker position (last point) and centering
+            if (pathCoords.length > 0) {
+                const lastPos = pathCoords[pathCoords.length - 1];
+                const googlePos = new google.maps.LatLng(lastPos.lat, lastPos.lng);
+                marker.setPosition(googlePos);
+                if (shouldCenter) {
+                    map.panTo(googlePos);
+                }
+            }
+        };
+        
+        // NEW: Function to perform Reverse Geocoding
+        const geocodeCoordinates = (lat, lng) => {
+            if (!geocoder) {
+                console.error("Geocoder not initialized.");
+                return;
+            }
+
+            const latlng = { lat: parseFloat(lat), lng: parseFloat(lng) };
+            
+            // Set initial 'Looking up...' status
+            displayStreet.textContent = 'Looking up...';
+            displayCity.textContent = 'Looking up...';
+            displayCountry.textContent = 'Looking up...';
+
+            geocoder.geocode({ location: latlng }, (results, status) => {
+                if (status === "OK") {
+                    if (results[0]) {
+                        const addressComponents = results[0].address_components;
+                        let street = '';
+                        let city = 'N/A';
+                        let country = 'N/A';
+                        let route = '';
+                        let streetNumber = '';
+
+                        // Helper to find component by type
+                        const findComponent = (type) => addressComponents.find(c => c.types.includes(type));
+
+                        // Parse Address Components
+                        // Locality is City, administrative_area_level_2/1 is Region/State
+                        const cityComponent = findComponent('locality') || findComponent('administrative_area_level_2') || findComponent('administrative_area_level_1');
+                        if (cityComponent) {
+                            city = cityComponent.long_name;
+                        }
+                        const countryComponent = findComponent('country');
+                        if (countryComponent) {
+                            country = countryComponent.long_name;
+                        }
+                        const routeComponent = findComponent('route');
+                        if (routeComponent) {
+                            route = routeComponent.long_name;
+                        }
+                        const streetNumberComponent = findComponent('street_number');
+                        if (streetNumberComponent) {
+                            streetNumber = streetNumberComponent.long_name;
+                        }
+
+                        // Combine street number and route for the full street address
+                        street = (streetNumber ? streetNumber + ' ' : '') + route;
+                        if (!street.trim() && results[0].formatted_address) {
+                            // Fallback to the first part of the formatted address if specific street components are missing
+                            const parts = results[0].formatted_address.split(',');
+                            street = parts[0].trim();
+                        }
+                        
+                        displayStreet.textContent = street || 'Address component not found';
+                        displayCity.textContent = city || 'City/Region not found';
+                        displayCountry.textContent = country || 'Country not found';
+                        
+                    } else {
+                        displayStreet.textContent = 'No address results found.';
+                        displayCity.textContent = 'N/A';
+                        displayCountry.textContent = 'N/A';
+                    }
+                } else {
+                    console.error("Geocoder failed due to: " + status);
+                    displayStreet.textContent = `Geocoding failed (${status})`;
+                    displayCity.textContent = 'N/A';
+                    displayCountry.textContent = 'N/A';
+                }
+            });
+        };
+
+        const updateDashboardUI = () => {
+            if (!state.userId) {
+                nicknameCard.classList.remove('hidden');
+                dashboardCard.classList.add('hidden');
+                return;
+            }
+
+            nicknameCard.classList.add('hidden');
+            dashboardCard.classList.remove('hidden');
+
+            // Find the last location for UI display
+            const lastLocation = state.locationHistory.length > 0 ? state.locationHistory[state.locationHistory.length - 1] : null;
+
+            // Set User Info
+            userIdDisplay.textContent = state.userId;
+            statusInput.value = state.message;
+            displayMessage.textContent = state.message || 'No status set';
+
+            // Set Tracking Status UI
+            if (state.isTracking) {
+                toggleBtn.textContent = 'Stop Tracking Location';
+                toggleBtn.classList.remove('bg-green-600', 'hover:bg-green-700', 'bg-yellow-500', 'hover:bg-yellow-600');
+                toggleBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+                statusInput.disabled = false;
+                
+                liveIndicator.classList.remove('bg-gray-300');
+                
+                // --- APPLY DOTTED BORDER AND ACTIVE SHADOW ---
+                dashboardCard.classList.add('border-4', 'border-dotted', 'border-green-500', 'shadow-2xl');
+                dashboardCard.classList.remove('border-gray-200');
+                // ---------------------------------------------
+                
+                // If we have a location, show active state
+                if (lastLocation) {
+                    liveIndicator.classList.add('bg-green-500', 'active-pulse');
+                    liveIndicator.classList.remove('bg-yellow-500');
+                    // Reverse geocode on UI update if we have a location
+                    geocodeCoordinates(lastLocation.lat, lastLocation.lng);
+                } else {
+                    // Waiting for first location
+                    liveIndicator.classList.add('bg-yellow-500');
+                    liveIndicator.classList.remove('active-pulse');
+                    liveIndicator.classList.remove('bg-green-500');
+                    displayTime.textContent = 'Waiting for location...';
+                    displayStreet.textContent = 'Waiting for location...';
+                    displayCity.textContent = 'Waiting for location...';
+                    displayCountry.textContent = 'Waiting for location...';
+                }
+
+            } else {
+                toggleBtn.textContent = 'Start Tracking Location';
+                toggleBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'bg-yellow-500', 'hover:bg-yellow-600');
+                toggleBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                statusInput.disabled = false;
+                
+                liveIndicator.classList.remove('bg-green-500', 'active-pulse', 'bg-yellow-500');
+                liveIndicator.classList.add('bg-gray-300');
+                
+                // --- REMOVE DOTTED BORDER AND SHADOW ---
+                dashboardCard.classList.remove('border-4', 'border-dotted', 'border-green-500', 'shadow-2xl');
+                // ---------------------------------------
+                
+                // Show last known location if available
+                if (lastLocation) {
+                    displayTime.textContent = new Date(lastLocation.timestamp).toLocaleTimeString();
+                    // Reverse geocode one last time on stop
+                    geocodeCoordinates(lastLocation.lat, lastLocation.lng);
+                } else {
+                     displayTime.textContent = 'Tracking stopped. No data.';
+                     displayStreet.textContent = 'Tracking stopped. No data.';
+                     displayCity.textContent = 'Tracking stopped. No data.';
+                     displayCountry.textContent = 'Tracking stopped. No data.';
+                }
+            }
+
+            // Update Coordinates
+            if (lastLocation) {
+                displayLat.textContent = lastLocation.lat.toFixed(6);
+                displayLng.textContent = lastLocation.lng.toFixed(6);
+            } else {
+                displayLat.textContent = '--';
+                displayLng.textContent = '--';
+                displayTime.textContent = 'Not yet acquired.';
+            }
+        };
+
+        const showModal = (message, isError = true) => {
+            // Simple in-page notification function
+            const msgElement = document.getElementById('status-update-message');
+            msgElement.textContent = message;
+            msgElement.classList.remove('text-red-500', 'text-green-500');
+            msgElement.classList.add(isError ? 'text-red-500' : 'text-green-500');
+            clearTimeout(window._msgTimeout);
+            window._msgTimeout = setTimeout(() => { msgElement.textContent = ''; }, 4000);
+        };
+
+        // --- Geolocation Handlers ---
+
+        const geoSuccess = (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const timestamp = new Date().getTime();
+            const newPoint = { lat, lng, timestamp };
+
+            // 1. Update location history
+            state.locationHistory.push(newPoint);
+            // Cap history to prevent memory overflow (e.g., last 50 points)
+            if (state.locationHistory.length > 50) {
+                state.locationHistory.shift(); 
+            }
+
+            saveState();
+
+            // Update the display immediately
+            displayLat.textContent = lat.toFixed(6);
+            displayLng.textContent = lng.toFixed(6);
+            displayTime.textContent = new Date(timestamp).toLocaleTimeString();
+
+            // 2. Update Map, Marker, and Path
+            if (map && marker && pathLine) {
+                updateMapPath(true); // Update path and center on new point
+                marker.setTitle(state.userId + " - Updated: " + new Date().toLocaleTimeString());
+                
+                // If the map was zoomed far out, zoom it in after the first successful fix
+                if (map.getZoom() < 10) {
+                    map.setZoom(14);
+                }
+            }
+            
+            // 3. Reverse Geocode for Address
+            geocodeCoordinates(lat, lng);
+
+            // Transition from "Waiting" (Yellow) to "Active" (Green) status
+            liveIndicator.classList.add('bg-green-500', 'active-pulse');
+            liveIndicator.classList.remove('bg-yellow-500');
+            
+            showModal(`Location updated successfully!`, false);
+        };
+
+        const geoError = (error) => {
+            console.error("Geolocation Error:", error.message, error.code);
+            let errorMsg = `Error code ${error.code}: Location access denied or unavailable.`;
+            if (error.code === 1) { 
+                 errorMsg = "Permission Denied: Please enable location access for this page in your browser settings.";
+            } else if (error.code === 3) { 
+                 errorMsg = "Timeout: Failed to retrieve location within time limit. Retrying...";
+            }
+            
+            showModal(errorMsg);
+            
+            // Revert UI to 'waiting' if an error occurs but tracking is still active
+            if (state.isTracking) {
+                liveIndicator.classList.add('bg-yellow-500');
+                liveIndicator.classList.remove('bg-green-500', 'active-pulse');
+            }
+        };
+
+        // --- Core Tracking Functions ---
+
+        const startTracking = () => {
+            if (!navigator.geolocation) {
+                showModal("Geolocation is not supported by your browser.", true);
+                return;
+            }
+
+            // 1. Update State and Save
+            state.isTracking = true;
+            saveState();
+
+            // 2. Set UI to 'Waiting' (Yellow)
+            updateDashboardUI(); 
+            
+            showModal(`Starting location watch...`);
+
+            // 3. Start Geolocation Watch
+            watchId = navigator.geolocation.watchPosition(geoSuccess, geoError, {
+                enableHighAccuracy: true,
+                maximumAge: 5000, // Accept cached position up to 5 seconds old
+                timeout: 10000 
+            });
+        };
+
+        const stopTracking = () => {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            
+            // 1. Update State and Save
+            state.isTracking = false;
+            saveState();
+            
+            // 2. Update UI
+            updateDashboardUI();
+            showModal(`Location tracking stopped.`, false);
+        };
+
+        const handleNicknameSave = () => {
+            const nickname = nicknameInput.value.trim();
+            if (nickname.length === 0) {
+                nicknameError.classList.remove('hidden');
+                return;
+            }
+            nicknameError.classList.add('hidden');
+            state.userId = nickname;
+            state.message = state.message || `Hello, this is ${nickname}!`;
+            saveState();
+            updateDashboardUI();
+            
+            // Initialize map immediately after setting nickname if the API script has loaded
+            if (typeof google !== 'undefined' && !map) {
+                window.initMap();
+            }
+        };
+
+        const handleNicknameChange = () => {
+            state.userId = null;
+            state.isTracking = false; // Stop tracking if user changes identity
+            state.locationHistory = []; // Clear history on identity change
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            saveState();
+            updateDashboardUI();
+            // Clear path from map immediately
+            if (pathLine) {
+                pathLine.setPath([]);
+            }
+            // Clear address displays
+            displayStreet.textContent = 'Awaiting location...';
+            displayCity.textContent = 'Awaiting location...';
+            displayCountry.textContent = 'Awaiting location...';
+        };
+        
+        const handleStatusUpdate = () => {
+            const newMessage = statusInput.value.trim();
+            state.message = newMessage;
+            displayMessage.textContent = newMessage || 'No status set';
+            saveState();
+            statusUpdateMessage.textContent = 'Status saved locally.';
+            statusUpdateMessage.classList.remove('text-red-500');
+            statusUpdateMessage.classList.add('text-green-500');
+            setTimeout(() => { statusUpdateMessage.textContent = ''; }, 2000);
+        };
+
+
+        // --- Event Listeners and Initialization ---
+        
+        toggleBtn.addEventListener('click', () => {
+            if (state.isTracking) {
+                stopTracking();
+            } else {
+                startTracking();
+            }
+        });
+        
+        setNicknameBtn.addEventListener('click', handleNicknameSave);
+        changeNicknameBtn.addEventListener('click', handleNicknameChange);
+        statusInput.addEventListener('input', handleStatusUpdate);
+
+        window.onload = () => {
+            loadState();
+            updateDashboardUI();
+            
+            // CORE PERSISTENCE LOGIC: Resume tracking if the last state indicated it was active
+            if (state.isTracking) {
+                console.log("Resuming tracking based on local storage state...");
+                // Note: startTracking() will automatically call saveState() and updateDashboardUI()
+                startTracking();
+            }
+            
+            // If the user has a saved nickname and the maps API script loaded before onload, initMap runs now
+            if (state.userId && typeof google !== 'undefined' && !map) {
+                 window.initMap();
+            }
+        };
+    </script>
+</body>
+</html>
